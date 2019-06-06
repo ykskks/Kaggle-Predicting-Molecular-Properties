@@ -1,0 +1,6 @@
+__pycahce__
+.ipynb_checkpoints
+
+/data/
+/logs/
+*.feather
