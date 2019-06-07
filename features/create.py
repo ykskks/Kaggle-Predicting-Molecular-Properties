@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import feather
 from sklearn.preprocessing import LabelEncoder
+from rdkit.Chem import Descriptors, Descriptors3D
 
 from features.base import get_arguments, get_features, generate_features, Feature
 
@@ -101,6 +102,39 @@ class AtomDistance(Feature):
 
         self.train['atom_distance'] = np.linalg.norm(train_p_0 - train_p_1, axis=1)
         self.test['atom_distance'] = np.linalg.norm(test_p_0 - test_p_1, axis=1)
+
+
+class RdkitDescriptors(Feature):
+    def create_features(self):
+        #calculate descriptors for each molecule from mol file
+        ids = []
+        mols = []
+        for i in range(1, 133886):
+            with open(f'dsgdb9nsd_{i:06}.mol', 'rb') as mol:
+                ids.append(f'dsgdb9nsd_{i:06}')
+                mols.append(mol)
+        rdkit_desc_df = pd.DataFrame()
+        rdkit_desc_df['ids'] = ids
+        rdkit_desc_df['mols'] = mols
+
+        #store functions in Descriptor, Descriptor3D modules in lists
+        desc_2Ds = [v for k, v in Descriptors.__dict__.items() if '__' not in k and callable(v)]
+        desc_3Ds = [v for k, v in Descriptors3D.__dict__.items() if '__' not in k and callable(v)]
+
+        for desc_2d in desc_2Ds:
+            rdkit_desc_df[desc_2D] = rdkit_desc_df['mols'].apply(desc_2D)
+        for desc_3d in desc_3Ds:
+            rdkit_desc_df[desc_3D] = rdkit_desc_df['mols'].apply(desc_3D)
+
+        #merge with train, test dataset
+        train = train.merge(rdkit_desc_df, left_on='molecule_name', right_on='ids', how='left')
+        test = test.merge(rdkit_desc_df, left_on='molecule_name', right_on='ids', how='left')
+        desc_2Ds_cols = [k for k, v in Descriptors.__dict__.items() if '__' not in k and callable(v)]
+        desc_3Ds_cols = [k for k, v in Descriptors3D.__dict__.items() if '__' not in k and callable(v)]
+        desc_cols = desc_2Ds_cols + desc_3Ds_cols
+
+        self.train[desc_cols] = train[desc_cols]
+        self.test[desc_cols] = test[desc_cols]
 
 
 if __name__ == '__main__':
