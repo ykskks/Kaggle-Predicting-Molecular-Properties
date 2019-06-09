@@ -1,11 +1,12 @@
 import sys
 sys.path.append('.')
+import re
 
 import pandas as pd
 import numpy as np
 import feather
 from sklearn.preprocessing import LabelEncoder
-from rdkit.Chem import Descriptors, Descriptors3D
+from rdkit.Chem import Descriptors, Descriptors3D, MolFromMolBlock, MACCSkeys, DataStructs
 
 from features.base import get_arguments, get_features, generate_features, Feature
 
@@ -106,35 +107,87 @@ class AtomDistance(Feature):
 
 class RdkitDescriptors(Feature):
     def create_features(self):
+        global train, test
+
         #calculate descriptors for each molecule from mol file
         ids = []
         mols = []
         for i in range(1, 133886):
-            with open(f'dsgdb9nsd_{i:06}.mol', 'rb') as mol:
-                ids.append(f'dsgdb9nsd_{i:06}')
-                mols.append(mol)
+            ids.append(f'dsgdb9nsd_{i:06}')
+            try:
+                with open(f'./data/input/structures/dsgdb9nsd_{i:06}.mol', 'r') as mol:
+                    mols.append(MolFromMolBlock(mol.read()))
+            except:
+                mols.append(np.nan)
         rdkit_desc_df = pd.DataFrame()
         rdkit_desc_df['ids'] = ids
         rdkit_desc_df['mols'] = mols
 
         #store functions in Descriptor, Descriptor3D modules in lists
-        desc_2Ds = [v for k, v in Descriptors.__dict__.items() if '__' not in k and callable(v)]
-        desc_3Ds = [v for k, v in Descriptors3D.__dict__.items() if '__' not in k and callable(v)]
+        desc_2Ds = [v for k, v in Descriptors.__dict__.items() if not '__' in k and not bool(re.match('_', k)) and callable(v)]
+        desc_3Ds = [v for k, v in Descriptors3D.__dict__.items() if not '__' in k and not bool(re.match('_', k)) and callable(v)]
+        desc_2Ds_cols = [k for k, v in Descriptors.__dict__.items() if not '__' in k and not bool(re.match('_', k)) and callable(v)]
+        desc_3Ds_cols = [k for k, v in Descriptors3D.__dict__.items() if not '__' in k and not bool(re.match('_', k)) and callable(v)]
+        desc_cols = desc_2Ds_cols + desc_3Ds_cols
 
-        for desc_2d in desc_2Ds:
-            rdkit_desc_df[desc_2D] = rdkit_desc_df['mols'].apply(desc_2D)
-        for desc_3d in desc_3Ds:
-            rdkit_desc_df[desc_3D] = rdkit_desc_df['mols'].apply(desc_3D)
+        #function for skipping molecules with no mol file
+        def skip_nan(func, mol):
+            try:
+                return func(mol)
+            except:
+                return np.nan
+        
+        for desc_2D, desc_2Ds_col in zip(desc_2Ds, desc_2Ds_cols):
+            rdkit_desc_df[desc_2Ds_col] = rdkit_desc_df['mols'].apply(lambda mol: skip_nan(desc_2D, mol))
+        for desc_3D, desc_3Ds_col in zip(desc_3Ds, desc_3Ds_cols):
+            rdkit_desc_df[desc_3Ds_col] = rdkit_desc_df['mols'].apply(lambda mol: skip_nan(desc_3D, mol))
 
         #merge with train, test dataset
         train = train.merge(rdkit_desc_df, left_on='molecule_name', right_on='ids', how='left')
         test = test.merge(rdkit_desc_df, left_on='molecule_name', right_on='ids', how='left')
-        desc_2Ds_cols = [k for k, v in Descriptors.__dict__.items() if '__' not in k and callable(v)]
-        desc_3Ds_cols = [k for k, v in Descriptors3D.__dict__.items() if '__' not in k and callable(v)]
-        desc_cols = desc_2Ds_cols + desc_3Ds_cols
 
         self.train[desc_cols] = train[desc_cols]
         self.test[desc_cols] = test[desc_cols]
+
+
+class MaccsKey(Feature):
+    def create_features(self):
+        global train, test
+
+        #calculate maccskeys for each molecule from mol file
+        ids = []
+        mols = []
+        for i in range(1, 133886):
+            ids.append(f'dsgdb9nsd_{i:06}')
+            try:
+                with open(f'./data/input/structures/dsgdb9nsd_{i:06}.mol', 'r') as mol:
+                    mols.append(MolFromMolBlock(mol.read()))
+            except:
+                mols.append(np.nan)
+        maccs_df = pd.DataFrame()
+        maccs_df['ids'] = ids
+        maccs_df['mols'] = mols 
+
+        BIT_LENGTH = 167
+        maccs_keys = np.zeros((0, BIT_LENGTH), dtype=np.int8)
+        for i in range(len(maccs_df)):
+            try:
+                arr = np.zeros((0, ), dtype=np.int8)
+                DataStructs.ConvertToNumpyArray(MACCSkeys.GenMACCSKeys(maccs_df['mols'][i]), arr)
+                maccs_keys = np.vstack([maccs_keys, arr])
+            except:
+                maccs_keys = np.vstack([maccs_keys, np.full(BIT_LENGTH, np.nan)])
+
+        for maccs_index in range(1, 167):
+            maccs_df[f'maccs_{maccs_index}'] = maccs_keys[:, maccs_index]  #ignore index 0
+        maccs_cols = [col for col in maccs_df.columns if 'maccs' in col]
+
+        #merge with train, test
+        train = train.merge(maccs_df, left_on='molecule_name', right_on='ids', how='left')
+        test = test.merge(maccs_df, left_on='molecule_name', right_on='ids', how='left')
+
+        self.train[maccs_cols] = train[maccs_cols]
+        self.test[maccs_cols] = test[maccs_cols]
 
 
 if __name__ == '__main__':
