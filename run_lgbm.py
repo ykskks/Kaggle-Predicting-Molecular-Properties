@@ -43,7 +43,21 @@ target = load_target(target_name)
 coupling_types = train['type']
 logger.debug(feats)
 logger.debug(categorical_feats)
+
+train.drop('PropertyFunctor', axis=1, inplace=True) #always nan
+test.drop('PropertyFunctor', axis=1, inplace=True) #always nan
+
+#drop molucules in train with nan descriptors
+#replace nan in test with the mean of train
+coupling_types = coupling_types[~train.isnull().any(axis=1)]
+target = target[~train.isnull().any(axis=1)]
+train = train[~train.isnull().any(axis=1)]
+nan_cols = train.columns.values[train.isnull().any(axis=0)]
+for col in nan_cols:
+    median = train[col].dropna().median()
+    train[col].fillna(median, inplace=True)
 logger.debug(train.shape)
+logger.debug(test.shape)
 
 
 #train lgbm
@@ -51,7 +65,7 @@ params = config['params']
 SEED = 42
 NUM_ROUNDS = 10000
 
-kf = KFold(n_splits=5, shuffle=True, random_state=SEED)
+kf = KFold(n_splits=2, shuffle=True, random_state=SEED)
 oof = np.zeros(len(train))
 predictions = np.zeros(len(test))
 feature_importance_df = pd.DataFrame()
@@ -78,7 +92,7 @@ cv_score = calculate_metric(oof, target.values, coupling_types.values)
 logger.debug(cv_score)
 
 feature_importance_df = feature_importance_df.groupby('feats')['importance'].mean().reset_index()
-feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False).head(10)
+feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False).head(30)
 logger.debug(feature_importance_df)
 
 
