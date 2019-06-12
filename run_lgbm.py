@@ -4,6 +4,7 @@ import logging
 import datetime
 
 from sklearn.model_selection import KFold
+from sklearn.preprocessing import LabelEncoder
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -37,7 +38,6 @@ logger.debug(config_path)
 #load in datasets and target
 feats = config['feats']
 target_name = config['target_name']
-categorical_feats = get_categorical_feats(config['categorical_feats'])
 train, test = load_datasets(feats)
 target = load_target(target_name)
 coupling_types = train['type']
@@ -56,6 +56,13 @@ nan_cols = train.columns.values[train.isnull().any(axis=0)]
 for col in nan_cols:
     median = train[col].dropna().median()
     train[col].fillna(median, inplace=True)
+
+categorical_cols = list(train.columns[train.dtypes == object])
+for col in categorical_cols:
+    le = LabelEncoder()
+    train[col] = le.fit_transform(train[col])
+    test[col] = le.transform(test[col])
+
 logger.debug(train.shape)
 logger.debug(test.shape)
 
@@ -72,8 +79,8 @@ feature_importance_df = pd.DataFrame()
 callbacks = [log_evaluation(logger, period=100)]
 
 for train_idx, val_idx in kf.split(train, target):
-    train_data = lgb.Dataset(train.iloc[train_idx], label=target.iloc[train_idx], categorical_feature=categorical_feats)
-    val_data = lgb.Dataset(train.iloc[val_idx], label=target.iloc[val_idx], categorical_feature=categorical_feats)
+    train_data = lgb.Dataset(train.iloc[train_idx], label=target.iloc[train_idx], categorical_feature=categorical_cols)
+    val_data = lgb.Dataset(train.iloc[val_idx], label=target.iloc[val_idx], categorical_feature=categorical_cols)
     clf = lgb.train(params, train_data, NUM_ROUNDS, valid_sets=[train_data, val_data],
                     verbose_eval=False, early_stopping_rounds=100, callbacks=callbacks)
     oof[val_idx] = clf.predict(train.iloc[val_idx], num_iteration=clf.best_iteration)
