@@ -5,19 +5,18 @@ import re
 import pandas as pd
 import numpy as np
 import feather
-from sklearn.preprocessing import LabelEncoder
 from rdkit.Chem import Descriptors, Descriptors3D, MolFromMolBlock, MACCSkeys, DataStructs
 
 from features.base import get_arguments, get_features, generate_features, Feature
+from utils import get_atom_env_feature
 
 Feature.base_dir = 'features'
 
 
 class CouplingType(Feature):
     def create_features(self):
-        le = LabelEncoder()
-        self.train['type'] = le.fit_transform(train['type'])
-        self.test['type'] = le.transform(test['type'])
+        self.train['type'] = train['type']
+        self.test['type'] = test['type']
 
 
 class AtomPosition(Feature):
@@ -70,11 +69,10 @@ class Atom(Feature):
         test = map_atom_info(test, 0)
         test = map_atom_info(test, 1)   
 
-        le = LabelEncoder()
-        self.train['atom_0'] = le.fit_transform(train['atom_0'])
-        self.train['atom_1'] = le.fit_transform(train['atom_1'])
-        self.test['atom_0'] = le.transform(test['atom_0'])
-        self.test['atom_1'] = le.transform(test['atom_1'])
+        self.train['atom_0'] = train['atom_0']
+        self.train['atom_1'] = train['atom_1']
+        self.test['atom_0'] = test['atom_0']
+        self.test['atom_1'] = test['atom_1']
 
 
 class AtomDistance(Feature):
@@ -188,6 +186,38 @@ class MaccsKey(Feature):
 
         self.train[maccs_cols] = train[maccs_cols]
         self.test[maccs_cols] = test[maccs_cols]
+
+
+class AtomEnvironment(Feature):
+    def create_features(self):
+        global train, test
+
+        ids = []
+        mols = []
+        for i in range(1, 133886):
+            ids.append(f'dsgdb9nsd_{i:06}')
+            try:
+                with open(f'./data/input/structures/dsgdb9nsd_{i:06}.mol', 'r') as mol:
+                    mols.append(MolFromMolBlock(mol.read(), removeHs=False))
+            except:
+                mols.append(np.nan)
+        neighbor_df = pd.DataFrame()
+        neighbor_df['ids'] = ids
+        neighbor_df['mols'] = mols 
+
+        train = train.merge(neighbor_df, left_on='molecule_name', right_on='ids')
+        test = test.merge(neighbor_df, left_on='molecule_name', right_on='ids')
+
+        train, cols = get_atom_env_feature(train)
+        test, _ = get_atom_env_feature(test)
+
+        for col in cols:
+            self.train[col] = train[col]
+            self.test[col] = test[col]
+
+
+
+
 
 
 if __name__ == '__main__':
