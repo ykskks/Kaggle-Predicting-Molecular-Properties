@@ -13,6 +13,7 @@ from utils.__init__ import timer
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--force', '-f', action='store_true', help='Overwrite existing files')
+    parser.add_argument('--which', '-w', type=str, help='Which feature to overwrite')
     return parser.parse_args()
 
 
@@ -22,9 +23,13 @@ def get_features(namespace):
             yield v()
 
 
-def generate_features(namespace, overwrite):
+def generate_features(namespace, overwrite, which):
     for feature in get_features(namespace):
         if feature.train_path.exists() and feature.test_path.exists() and not overwrite:
+            print(feature.name, 'was skipped.')
+        elif feature.train_path.exists() and feature.test_path.exists() and overwrite and which == feature.name:
+            feature.run().save()
+        elif feature.train_path.exists() and feature.test_path.exists() and overwrite and which != feature.name:
             print(feature.name, 'was skipped.')
         else:
             feature.run().save()
