@@ -9,6 +9,7 @@ import numpy as np
 import feather
 from rdkit.Chem import Descriptors, Descriptors3D, MolFromMolBlock, MACCSkeys, DataStructs
 from tqdm import tqdm
+from joblib import Parallel, delayed
 
 from features.base import get_arguments, get_features, generate_features, Feature
 from utils import get_atom_env_feature, get_atom_neighbor_feature, calc_atom_neighbor_feature, reduce_mem_usage, generate_brute_force_features
@@ -41,18 +42,10 @@ class AtomPosition(Feature):
         test = map_atom_info(test, 0)
         test = map_atom_info(test, 1)   
 
-        self.train['x_0'] = train['x_0']
-        self.train['x_1'] = train['x_1']
-        self.train['y_0'] = train['y_0']
-        self.train['y_1'] = train['y_1']
-        self.train['z_0'] = train['z_0']
-        self.train['z_1'] = train['z_1']        
-        self.test['x_0'] = test['x_0']
-        self.test['x_1'] = test['x_1']
-        self.test['y_0'] = test['y_0']
-        self.test['y_1'] = test['y_1']
-        self.test['z_0'] = test['z_0']
-        self.test['z_1'] = test['z_1']     
+        pos_list = [i+'_'+j for i in ['x', 'y', 'z'] for j in ['0', '1']]
+        for pos in pos_list:
+            self.train[pos] = train[pos]
+            self.test[pos] = test[pos]
 
 
 class Atom(Feature):
@@ -209,11 +202,12 @@ class AtomNeighbors(Feature):
             self.test[col] = test[col]      
 
 
+
 # https://www.kaggle.com/artgor/brute-force-feature-engineering
 class BruteForce(Feature):
     def create_features(self):
-        structures = feather.read_dataframe('./data/input/structures.feather')
         global train, test
+        structures = feather.read_dataframe('./data/input/structures.feather')
 
         def map_atom_info(df, atom_idx):
             df = pd.merge(df, structures, how='left', left_on=['molecule_name', f'atom_index_{atom_idx}'],
@@ -261,6 +255,91 @@ class BruteForce(Feature):
             self.train[col] = train[col]
             self.test[col] = test[col]      
 
+
+# https://www.kaggle.com/hervind/speed-up-coulomb-interaction-56x-faster
+class CoulombInteraction(Feature):
+    def create_features(self):
+        global train, test
+        train.drop('scalar_coupling_constant', axis=1, inplace=True)
+        total = pd.concat([train, test], axis=0)
+        structures = feather.read_dataframe('./data/input/structures.feather')
+        NCORES = 6
+        NUM = 5
+
+        train = reduce_mem_usage(train)
+        test = reduce_mem_usage(test)
+        total = reduce_mem_usage(total)
+        structures = reduce_mem_usage(structures)
+        gc.collect()
+
+        df_distance = structures.merge(structures, how = 'left', on= 'molecule_name', suffixes = ('_0', '_1'))
+        # remove same molecule
+        df_distance = df_distance.loc[df_distance['atom_index_0'] != df_distance['atom_index_1']]
+
+        df_distance['distance'] = np.linalg.norm(df_distance[['x_0','y_0', 'z_0']].values - 
+                                                df_distance[['x_1', 'y_1', 'z_1']].values, axis=1, ord = 2)
+
+        def get_interaction_data_frame(df_distance, num_nearest = 5):
+            print("START")
+            
+            # get nearest 5 (num_nearest) by distances
+            df_temp = df_distance.groupby(['molecule_name', 'atom_index_0', 'atom_1'])['distance'].nsmallest(num_nearest)
+            
+            # make it clean
+            df_temp = pd.DataFrame(df_temp).reset_index()[['molecule_name', 'atom_index_0', 'atom_1', 'distance']]
+            df_temp.columns = ['molecule_name', 'atom_index', 'atom', 'distance']
+            
+            print("Time Nearest")
+            
+            # get rank by distance
+            df_temp['distance_rank'] = df_temp.groupby(['molecule_name', 'atom_index', 'atom'])['distance'].rank(ascending = True, method = 'first').astype(int)
+            
+            print("Time Rank")
+            
+            # pivot to get nearest distance by atom type 
+            df_distance_nearest = pd.pivot_table(df_temp, index = ['molecule_name','atom_index'], columns= ['atom', 'distance_rank'], values= 'distance')
+            
+            print("Time Pivot")
+            del df_temp
+            
+            columns_distance_nearest =  np.core.defchararray.add('distance_nearest_', 
+                                                np.array(df_distance_nearest.columns.get_level_values('distance_rank')).astype(str) +  
+                                                np.array(df_distance_nearest.columns.get_level_values('atom')) )
+            df_distance_nearest.columns = columns_distance_nearest
+            
+            # 1 / r^2 to get the square inverse same with the previous kernel
+            df_distance_sq_inv_farthest = 1 / (df_distance_nearest ** 2)
+            
+            columns_distance_sq_inv_farthest = [col.replace('distance_nearest', 'dist_sq_inv_') for col in columns_distance_nearest]
+
+            df_distance_sq_inv_farthest.columns = columns_distance_sq_inv_farthest
+    
+            print("Time Inverse Calculation")
+            
+            df_interaction = pd.concat([df_distance_sq_inv_farthest, df_distance_nearest] , axis = 1)
+            df_interaction.reset_index(inplace = True)
+      
+            print("Time Concat")
+            
+            return df_interaction
+
+
+        df_interaction = get_interaction_data_frame(df_distance)
+
+        #merge with train, test
+        train = train.merge(df_interaction, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index'])
+        train = train.merge(df_interaction, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'])
+
+        test = test.merge(df_interaction, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index'])
+        test = test.merge(df_interaction, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'])
+
+        col_name_list = [col for col in train.columns if 'sq_inv' in col]
+        print(f'Number of cols generated is {len(col_name_list)}')
+       
+        for col in col_name_list:
+            self.train[col] = train[col]
+            self.test[col] = test[col]     
+     
 
 
 
