@@ -339,9 +339,6 @@ class CoulombInteraction(Feature):
         for col in col_name_list:
             self.train[col] = train[col]
             self.test[col] = test[col]     
-     
-
-
 
 
 if __name__ == '__main__':
