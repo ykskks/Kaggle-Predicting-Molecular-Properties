@@ -15,8 +15,10 @@ from utils import load_datasets, load_target, get_categorical_feats, calculate_m
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", help="configuration for this run")
+parser.add_argument("--debug", action="store_true", help="activate debug mode")
 args = parser.parse_args()
 config_path = args.config
+is_debug_mode = args.debug
 
 
 #get config fot this run
@@ -41,17 +43,25 @@ feats = config['feats']
 target_name = config['target_name']
 train, test = load_datasets(feats)
 target = load_target(target_name)
-coupling_types = train['type']
+
+if is_debug_mode:
+    print("Debug mode is ON!")
+    train = train.iloc[:1000]
+    test = test.iloc[:1000]
+    target = target.iloc[:1000]
+
+train_type = train['type'].values
+test_type = test['type'].values
 logger.debug(feats)
 
-train.drop('PropertyFunctor', axis=1, inplace=True) #always nan
-test.drop('PropertyFunctor', axis=1, inplace=True) #always nan
+train.drop(['PropertyFunctor', 'type'], axis=1, inplace=True) #always nan
+test.drop(['PropertyFunctor', 'type'], axis=1, inplace=True) #always nan
 
 #drop molucules in train with nan descriptors
 #replace nan in test with the mean of train
 nan_cols = list(train.columns.values[train.isnull().any(axis=0)])
-coupling_types = coupling_types[~train.isnull().any(axis=1)]
 target = target[~train.isnull().any(axis=1)]
+train_type = train_type[~train.isnull().any(axis=1)]
 train = train[~train.isnull().any(axis=1)]
 categorical_cols = list(train.columns[train.dtypes == object])
 logger.debug(nan_cols)
@@ -85,40 +95,51 @@ SEED = 42
 VAL_SIZE = 0.4
 NUM_ROUNDS = 10000
 
-train, val, target_train, target_val = train_test_split(train, target, test_size=VAL_SIZE, 
-                                                        random_state=SEED, shuffle=True, stratify=train['type'])
-callbacks = [log_evaluation(logger, period=100)]
 
+#build models for each type
+predictions = np.zeros(len(test))
 
-train_data = lgb.Dataset(train, label=target_train, categorical_feature=categorical_cols)
-val_data = lgb.Dataset(val, label=target_val, categorical_feature=categorical_cols)
-clf = lgb.train(params, train_data, NUM_ROUNDS, valid_sets=[train_data, val_data],
-                verbose_eval=False, early_stopping_rounds=100, callbacks=callbacks)
-val_pred = clf.predict(val, num_iteration=clf.best_iteration)
+val_score_list = []
 
-#store feature importance for this fold
-feature_importance_df = pd.DataFrame()
-feature_importance_df['feats'] = train.columns
-feature_importance_df['importance'] = clf.feature_importance(importance_type='gain')
+for cur_type in np.unique(train_type):
+    cur_type_idx_train = (train_type == cur_type)
+    cur_type_idx_test = (test_type == cur_type)
 
+    train_cur_type, val_cur_type, target_train, target_val = train_test_split(train.iloc[cur_type_idx_train], target.iloc[cur_type_idx_train], test_size=VAL_SIZE, 
+                                                            random_state=SEED, shuffle=True)
+    callbacks = [log_evaluation(logger, period=100)]
 
-predictions = clf.predict(test, num_iteration=clf.best_iteration) 
+    train_data = lgb.Dataset(train_cur_type, label=target_train, categorical_feature=categorical_cols)
+    val_data = lgb.Dataset(val_cur_type, label=target_val, categorical_feature=categorical_cols)
+    clf = lgb.train(params, train_data, NUM_ROUNDS, valid_sets=[train_data, val_data],
+                    verbose_eval=False, early_stopping_rounds=100, callbacks=callbacks)
+    val_pred = clf.predict(val_cur_type, num_iteration=clf.best_iteration)
 
+    #store feature importance for this fold
+    feature_importance_df = pd.DataFrame()
+    feature_importance_df['feats'] = train.columns
+    feature_importance_df['importance'] = clf.feature_importance(importance_type='gain')
 
-#log val score and feature importance
-val_score = calculate_metric(val_pred, target_val, val['type'].values)
-logger.debug(val_score)
+    predictions[cur_type_idx_test] = clf.predict(test.iloc[cur_type_idx_test], num_iteration=clf.best_iteration) 
 
-#feature_importance_df = feature_importance_df.groupby('feats')['importance'].mean().reset_index()
-feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False).head(30)
-logger.debug(feature_importance_df)
+    #log val score and feature importance
+    val_score = calculate_metric(val_pred, target_val, np.full(len(val_cur_type), cur_type))
+    logger.debug(f'Val score for {cur_type}: {val_score}')
+    val_score_list.append(val_score)
+
+    #feature_importance_df = feature_importance_df.groupby('feats')['importance'].mean().reset_index()
+    feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False).head(30)
+    logger.debug(f'feature importance for {cur_type}')
+    logger.debug(feature_importance_df)
 
 
 #make submission file
-sub = feather.read_dataframe('data/input/sample_submission.feather')
-sub['scalar_coupling_constant'] = predictions
-sub.to_csv(f'data/output/sub_{now}_{val_score:.3f}.csv', index=False)
-logger.debug(f'data/output/sub_{now}_{val_score:.3f}.csv')
+if not is_debug_mode:
+    val_score = sum(val_score_list) / len(val_score_list)
+    sub = feather.read_dataframe('data/input/sample_submission.feather')
+    sub['scalar_coupling_constant'] = predictions
+    sub.to_csv(f'data/output/sub_{now}_{val_score:.3f}.csv', index=False)
+    logger.debug(f'data/output/sub_{now}_{val_score:.3f}.csv')
 
 
 
