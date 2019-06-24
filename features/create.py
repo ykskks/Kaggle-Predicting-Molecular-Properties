@@ -334,6 +334,9 @@ class CoulombInteraction(Feature):
         test = test.merge(df_interaction, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index'])
         test = test.merge(df_interaction, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'])
 
+        train.fillna(0, inplace=True)
+        test.fillna(0, inplace=True)
+
         col_name_list = [col for col in train.columns if 'sq_inv' in col]
         print(f'Number of cols generated is {len(col_name_list)}')
        
@@ -356,17 +359,17 @@ class DistanceFromClosest(Feature):
         def convert_to_arr(df):
             len_dist_arr = 10
             len_prop_arr = 2
-            dist_arr = np.zeros(len_dist_arr)
-            prop_arr = np.zeros(len_prop_arr)
+            dist_lis = []
+            prop_lis = []
             groups = df.groupby(['molecule_name', 'atom_index_0'])
             for group in tqdm(groups):
                 cur_num_dist = len(group[1]['distance'])
                 dist = np.pad(group[1]['distance'].values, [0, len_dist_arr - cur_num_dist], 'constant')
                 #zero pad when there are less than 10 dist values for the molecule&atom pair
-                dist_arr = np.vstack([dist_arr, dist])
-                prop_arr = np.vstack([prop_arr, np.array(group[0])])
+                dist_lis.append(list(dist))
+                prop_lis.append(list(group[0]))
                 
-            arr_combined = np.hstack([prop_arr[1:], dist_arr[1:]])
+            arr_combined = np.hstack([np.array(prop_lis), np.array(dist_lis)])
             col_names = [f'dist_from_closest_{i}' for i in range(1, 11)]
             col_names = ['molecule_name', 'atom_index_0'] + col_names
             return pd.DataFrame(arr_combined, columns=col_names)
@@ -382,8 +385,58 @@ class DistanceFromClosest(Feature):
 
         new_cols = [col for col in train.columns if 'closest' in col]
         for col in new_cols:
-            self.train[col] = train[col]
-            self.test[col] = test[col]     
+            self.train[col] = train[col].astype(float)
+            self.test[col] = test[col].astype(float)  
+
+
+class ElectroNegFromClosest(Feature):
+    def create_features(self):
+        global train, test
+        structures = feather.read_dataframe("./data/input/structures.feather")
+        df_distance = structures.merge(structures, on='molecule_name', how='left', suffixes=['_0', '_1'])
+        df_distance = df_distance[df_distance['atom_index_0'] != df_distance['atom_index_1']]
+        df_distance['distance'] = np.linalg.norm(df_distance[['x_0', 'y_0', 'z_0']].values - 
+                                                df_distance[['x_1', 'y_1',  'z_1']].values, axis=1, ord = 2)
+        tmp = df_distance.groupby(['molecule_name', 'atom_index_0'])['distance'].nsmallest(10)
+        tmp = tmp.reset_index()
+        df_distance = df_distance.reset_index()
+        tmp = tmp.merge(df_distance, left_on=['molecule_name', 'atom_index_0', 'level_2'], right_on=['molecule_name', 'atom_index_0', 'index'], how='left')[['molecule_name', 'atom_index_0', 'atom_1']]
+
+        en ={'H':2.2, 'C':2.55, 'N':3.04, 'O':3.44, 'F':3.98}
+        tmp['en'] = tmp['atom_1'].map(en)
+
+        def convert_to_arr(df):
+            len_en_arr = 10
+            len_prop_arr = 2
+            en_lis = []
+            prop_lis = []
+            groups = df.groupby(['molecule_name', 'atom_index_0'])
+            for group in tqdm(groups):
+                cur_num_en = len(group[1]['en'])
+                en = np.pad(group[1]['en'].values, [0, len_en_arr - cur_num_en], 'constant')
+                #zero pad when there are less than 10 dist values for the molecule&atom pair
+                en_lis.append(list(en))
+                prop_lis.append(list(group[0]))
+                
+            arr_combined = np.hstack([np.array(prop_lis), np.array(en_lis)])
+            col_names = [f'en_from_closest_{i}' for i in range(1, 11)]
+            col_names = ['molecule_name', 'atom_index_0'] + col_names
+            return pd.DataFrame(arr_combined, columns=col_names)
+
+        en = convert_to_arr(tmp)
+        en['atom_index_0'] = en['atom_index_0'].astype(int)
+
+        train = train.merge(en, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        train = train.merge(en, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
+
+        test = test.merge(en, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        test = test.merge(en, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
+
+        new_cols = [col for col in train.columns if 'closest' in col]
+        for col in new_cols:
+            self.train[col] = train[col].astype(float)
+            self.test[col] = test[col].astype(float)  
+
 
 if __name__ == '__main__':
     args = get_arguments()
