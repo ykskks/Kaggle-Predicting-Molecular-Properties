@@ -27,7 +27,7 @@ with open(config_path, 'r') as f:
 
 
 #prepare the log file
-now = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 logger = logging.getLogger('main')
 logger.setLevel(logging.DEBUG)
 sc = logging.StreamHandler()
@@ -47,10 +47,10 @@ molecule_name = feather.read_dataframe('./data/input/train.feather')['molecule_n
 
 if is_debug_mode:
     print("Debug mode is ON!")
-    train = train.iloc[:1000]
+    train = train.iloc[:10000]
     test = test.iloc[:1000]
-    target = target.iloc[:1000]
-    molecule_name = molecule_name[:1000]
+    target = target.iloc[:10000]
+    molecule_name = molecule_name[:10000]
 
 train_type = train['type'].values
 test_type = test['type'].values
@@ -124,7 +124,7 @@ for cur_type in np.unique(train_type):
         clf = lgb.train(params, train_data, NUM_ROUNDS, valid_sets=[train_data, val_data],
                         verbose_eval=False, early_stopping_rounds=100, callbacks=callbacks)
         oof[val_idx] = clf.predict(x_val, num_iteration=clf.best_iteration) 
-        predictions[cur_type_idx_test] = clf.predict(test.iloc[cur_type_idx_test], num_iteration=clf.best_iteration) / kf.n_splits
+        predictions[cur_type_idx_test] += clf.predict(test.iloc[cur_type_idx_test], num_iteration=clf.best_iteration) / kf.n_splits
 
         #store feature importance for this fold
         fold_importance_df = pd.DataFrame()
