@@ -44,8 +44,8 @@ def calculate_metric(predicted_values, true_values, coupling_types, floor=1e-9):
     """Inputs should be in numpy.array format"""
     metric = 0
     for coupling_type in np.unique(coupling_types):
-        group_metric = np.log(mean_absolute_error(true_values[coupling_types == coupling_type], predicted_values[coupling_types == coupling_type]))
-        metric += max(group_metric, floor)
+        group_mae = mean_absolute_error(true_values[coupling_types == coupling_type], predicted_values[coupling_types == coupling_type])
+        metric += np.log(max(group_mae, floor))
     return metric / len(np.unique(coupling_types))
 
 
