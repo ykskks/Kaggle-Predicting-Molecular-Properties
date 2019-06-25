@@ -345,6 +345,57 @@ class CoulombInteraction(Feature):
             self.test[col] = test[col]     
 
 
+class CosBetweenClosest(Feature):
+    def create_features(self):
+        global train, test
+        structures = feather.read_dataframe("./data/input/structures.feather")
+        df_distance = structures.merge(structures, on='molecule_name', how='left', suffixes=['_0', '_1'])
+        df_distance = df_distance[df_distance['atom_index_0'] != df_distance['atom_index_1']]
+        df_distance['distance'] = np.linalg.norm(df_distance[['x_0', 'y_0', 'z_0']].values - 
+                                                df_distance[['x_1', 'y_1',  'z_1']].values, axis=1, ord = 2)
+
+        df_distance['dist_a0'] = np.linalg.norm(df_distance[['x_0', 'y_0', 'z_0']].values, axis=1, ord = 2)
+        df_distance['dist_a1'] = np.linalg.norm(df_distance[['x_1', 'y_1', 'z_1']].values, axis=1, ord = 2)
+        df_distance['costheta'] = np.sum(np.multiply(df_distance[['x_0', 'y_0', 'z_0']].values, df_distance[['x_1', 'y_1', 'z_1']].values), axis=1) / (df_distance['dist_a0'] * df_distance['dist_a1'])
+
+        tmp = df_distance.groupby(['molecule_name', 'atom_index_0'])['distance'].nsmallest(10)
+        tmp = tmp.reset_index()
+        df_distance = df_distance.reset_index()
+        tmp = tmp.merge(df_distance, left_on=['molecule_name', 'atom_index_0', 'level_2'], right_on=['molecule_name', 'atom_index_0', 'index'], how='left')[['molecule_name', 'atom_index_0', 'costheta']]
+
+        def convert_to_arr(df):
+            len_cos_arr = 10
+            len_prop_arr = 2
+            cos_lis = []
+            prop_lis = []
+            groups = df.groupby(['molecule_name', 'atom_index_0'])
+            for group in tqdm(groups):
+                cur_num_cos = len(group[1]['costheta'])
+                cos = np.pad(group[1]['costheta'].values, [0, len_cos_arr - cur_num_cos], 'constant')
+                #zero pad when there are less than 10 dist values for the molecule&atom pair
+                cos_lis.append(list(cos))
+                prop_lis.append(list(group[0]))
+                
+            arr_combined = np.hstack([np.array(prop_lis), np.array(cos_lis)])
+            col_names = [f'cos_between_closest_{i}' for i in range(1, 11)]
+            col_names = ['molecule_name', 'atom_index_0'] + col_names
+            return pd.DataFrame(arr_combined, columns=col_names)
+
+        cos = convert_to_arr(tmp)
+        cos['atom_index_0'] = cos['atom_index_0'].astype(int)
+
+        train = train.merge(cos, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        train = train.merge(cos, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
+
+        test = test.merge(cos, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        test = test.merge(cos, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
+
+        new_cols = [col for col in train.columns if 'closest' in col]
+        for col in new_cols:
+            self.train[col] = train[col].astype(float)
+            self.test[col] = test[col].astype(float)  
+
+
 class DistanceFromClosest(Feature):
     def create_features(self):
         global train, test
@@ -376,6 +427,16 @@ class DistanceFromClosest(Feature):
 
         dist = convert_to_arr(tmp)
         dist['atom_index_0'] = dist['atom_index_0'].astype(int)
+
+        cols = [col for col in dist.columns if 'closest' in col]
+        for col in cols:
+            dist[col] = dist[col].astype(float)
+
+        dist['dist_from_closest_mean'] = dist[cols].mean(axis=1)
+        dist['dist_from_closest_max'] = dist[cols].max(axis=1)
+        dist['dist_from_closest_min'] = dist[cols].min(axis=1)
+        dist['dist_from_closest_std'] = dist[cols].std(axis=1) 
+        dist['dist_from_closest_zerocount'] = (dist[cols] == 0.0).astype(int).sum(axis=1)       
 
         train = train.merge(dist, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         train = train.merge(dist, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
@@ -426,6 +487,15 @@ class ElectroNegFromClosest(Feature):
         en = convert_to_arr(tmp)
         en['atom_index_0'] = en['atom_index_0'].astype(int)
 
+        cols = [col for col in en.columns if 'closest' in col]
+        for col in cols:
+            en[col] = en[col].astype(float)     
+
+        en['en_from_closest_mean'] = en[cols].mean(axis=1)   
+        en['en_from_closest_max'] = en[cols].max(axis=1)
+        en['en_from_closest_min'] = en[cols].min(axis=1)
+        en['en_from_closest_std'] = en[cols].std(axis=1)
+
         train = train.merge(en, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         train = train.merge(en, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
 
@@ -436,7 +506,6 @@ class ElectroNegFromClosest(Feature):
         for col in new_cols:
             self.train[col] = train[col].astype(float)
             self.test[col] = test[col].astype(float)  
-
 
 if __name__ == '__main__':
     args = get_arguments()
