@@ -30,8 +30,8 @@ class AtomPosition(Feature):
         global train, test
 
         def map_atom_info(df, atom_idx):
-            df = pd.merge(df, structures, how='left', left_on=['molecule_name', f'atom_index_{atom_idx}'],
-                          right_on=['molecule_name', 'atom_index'])
+            df = pd.merge(df, structures, how='left', left_on=['molecule_name', f'atom_index_{atom_idx}'], 
+                            right_on=['molecule_name', 'atom_index'])
             df = df.drop('atom_index', axis=1)
             df = df.rename(columns={'x': f'x_{atom_idx}',
                                     'y': f'y_{atom_idx}',
@@ -506,6 +506,54 @@ class ElectroNegFromClosest(Feature):
         for col in new_cols:
             self.train[col] = train[col].astype(float)
             self.test[col] = test[col].astype(float)  
+
+
+class ACSF(Feature):
+    def create_features(self):
+        #dscribeがWSLでしか動かないのでこの特徴を生成するときにimportする
+        import dscribe
+        from dscribe.descriptors import ACSF
+        import ase
+
+        global train, test
+        structures = feather.read_dataframe("./data/input/structures.feather")
+        groups = structures.groupby('molecule_name')
+
+        acsf = ACSF(species=["H", "O", 'N', 'C', 'F'],
+                    rcut=10.0,
+                    g2_params=[[1, 2], [0.1, 2], [0.01, 2],
+                                [1, 6], [0.1, 6], [0.01, 6]],
+                    g4_params=[[1, 4,  1], [0.1, 4,  1], [0.01, 4,  1], 
+                                [1, 4, -1], [0.1, 4, -1], [0.01, 4, -1]],
+                    )
+
+        acsf_descs = []
+        for group in tqdm(groups):
+            atoms = group[1]['atom'].values
+            positions = group[1][['x', 'y', 'z']].values
+            atoms_obj = ase.Atoms(atoms, positions)
+            acsf_desc = acsf.create(atoms_obj)
+            for row in acsf_desc:
+                acsf_descs.append(row)
+        acsf_descs = pd.DataFrame(acsf_descs)   
+
+        acsf_descs = acsf_descs.reset_index(drop=True)
+        acsf_descs.columns = [f'acsf_{i}' for i in range(acsf_descs.shape[1])]
+        
+        structures = pd.concat([structures, acsf_descs], axis=1)
+
+        train = train.merge(structures, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index'], how='left')
+        train = train.merge(structures, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'], how='left', suffixes=['_a0', '_a1'])
+
+        test = test.merge(structures, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index'], how='left')
+        test = test.merge(structures, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'], how='left', suffixes=['_a0', '_a1'])
+
+        new_cols = [col for col in train.columns if 'acsf' in col]
+        for col in new_cols:
+            self.train[col] = train[col].astype(float)
+            self.test[col] = test[col].astype(float)  
+
+
 
 if __name__ == '__main__':
     args = get_arguments()
