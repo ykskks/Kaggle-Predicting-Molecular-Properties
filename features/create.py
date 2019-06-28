@@ -7,12 +7,12 @@ import pickle
 import pandas as pd
 import numpy as np
 import feather
-from rdkit.Chem import Descriptors, Descriptors3D, MolFromMolBlock, MACCSkeys, DataStructs
+#from rdkit.Chem import Descriptors, Descriptors3D, MolFromMolBlock, MACCSkeys, DataStructs
 from tqdm import tqdm
 from joblib import Parallel, delayed
 
 from features.base import get_arguments, get_features, generate_features, Feature
-from utils import get_atom_env_feature, get_atom_neighbor_feature, calc_atom_neighbor_feature, reduce_mem_usage
+#from utils import get_atom_env_feature, get_atom_neighbor_feature, calc_atom_neighbor_feature, reduce_mem_usage
 # from utils import generate_brute_force_features
 
 Feature.base_dir = 'features'
@@ -549,6 +549,50 @@ class ACSF(Feature):
         test = test.merge(structures, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'], how='left', suffixes=['_a0', '_a1'])
 
         new_cols = [col for col in train.columns if 'acsf' in col]
+        for col in new_cols:
+            self.train[col] = train[col].astype(float)
+            self.test[col] = test[col].astype(float)  
+
+
+class SOAP(Feature):
+    def create_features(self):
+        #dscribeがWSLでしか動かないのでこの特徴を生成するときにimportする
+        import dscribe
+        from dscribe.descriptors import SOAP
+        import ase
+
+        global train, test
+        structures = feather.read_dataframe("./data/input/structures.feather")
+        groups = structures.groupby('molecule_name')
+
+        soap = SOAP(species=["H", "O", 'N', 'C', 'F'],
+                    rcut=10.0,
+                    nmax=2,
+                    lmax=2
+                    )
+
+        soap_descs = []
+        for group in tqdm(groups):
+            atoms = group[1]['atom'].values
+            positions = group[1][['x', 'y', 'z']].values
+            atoms_obj = ase.Atoms(atoms, positions)
+            soap_desc = soap.create(atoms_obj)
+            for row in soap_desc:
+                soap_descs.append(row)
+        soap_descs = pd.DataFrame(soap_descs)   
+
+        soap_descs = soap_descs.reset_index(drop=True)
+        soap_descs.columns = [f'soap_{i}' for i in range(soap_descs.shape[1])]
+        
+        structures = pd.concat([structures, soap_descs], axis=1)
+
+        train = train.merge(structures, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index'], how='left')
+        train = train.merge(structures, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'], how='left', suffixes=['_a0', '_a1'])
+
+        test = test.merge(structures, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index'], how='left')
+        test = test.merge(structures, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index'], how='left', suffixes=['_a0', '_a1'])
+
+        new_cols = [col for col in train.columns if 'soap' in col]
         for col in new_cols:
             self.train[col] = train[col].astype(float)
             self.test[col] = test[col].astype(float)  
