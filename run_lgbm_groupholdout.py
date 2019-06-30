@@ -111,7 +111,7 @@ for cur_type in np.unique(train_type):
     cur_type_target = target.iloc[cur_type_idx_train]
     cur_type_mols = molecule_name[cur_type_idx_train]
 
-    train_idx, val_idx = next(GroupShuffleSplit().split(cur_type_train, cur_type_target, cur_type_mols))
+    train_idx, val_idx = next(GroupShuffleSplit(random_state=SEED, n_splits=1, test_size=VAL_SIZE).split(cur_type_train, cur_type_target, cur_type_mols))
 
     x_train, y_train = cur_type_train.iloc[train_idx], cur_type_target.iloc[train_idx]
     x_val, y_val = cur_type_train.iloc[val_idx], cur_type_target.iloc[val_idx]
