@@ -15,11 +15,12 @@ from utils import load_datasets, load_target, get_categorical_feats, calculate_m
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", help="configuration for this run")
-parser.add_argument("--keep-nans", action="store_true", help="keep nan values as they are")
+parser.add_argument("--keep_nans", action="store_true", help="keep nan values as they are")
 parser.add_argument("--debug", action="store_true", help="activate debug mode")
 args = parser.parse_args()
 config_path = args.config
 is_debug_mode = args.debug
+keep_nans = args.keep_nans
 
 
 #get config fot this run
@@ -37,6 +38,8 @@ fh = logging.FileHandler(f'logs/log_{now}.log')
 logger.addHandler(fh)
 logger.debug(f'logs/log_{now}.log')
 logger.debug(config_path)
+logger.debug(f'is_debug_mode: {is_debug_mode}')
+logger.debug(f'keep_nans: {keep_nans}')
 
 
 #load in datasets and target
@@ -58,30 +61,43 @@ logger.debug(feats)
 #train.drop(['PropertyFunctor', 'type'], axis=1, inplace=True) #always nan
 #test.drop(['PropertyFunctor', 'type'], axis=1, inplace=True) #always nan
 
-#drop molucules in train with nan descriptors
-#replace nan in test with the mean of train
-nan_cols = list(train.columns.values[train.isnull().any(axis=0)])
-target = target[~train.isnull().any(axis=1)]
-train_type = train_type[~train.isnull().any(axis=1)]
-molecule_name = molecule_name[~train.isnull().any(axis=1)]
-train = train[~train.isnull().any(axis=1)]
-categorical_cols = list(train.columns[train.dtypes == object])
-logger.debug(nan_cols)
-logger.debug(categorical_cols) 
 
-for col in nan_cols:
-    if col in categorical_cols:
-        mode = train[col].dropna().mode()
-        test[col].fillna(mode[0], inplace=True)
-    else:
-        median = train[col].dropna().median()
-        test[col].fillna(median, inplace=True)
+if keep_nans:
+    # simply keep nans as they are and let the lightgbm handle it
+    categorical_cols = list(train.columns[train.dtypes == object])
+    logger.debug(categorical_cols) 
 
+else:
+    #drop molucules in train with nan descriptors
+    #replace nan in test with the mean of train
+    nan_cols = list(train.columns.values[train.isnull().any(axis=0)])
+    target = target[~train.isnull().any(axis=1)]
+    train_type = train_type[~train.isnull().any(axis=1)]
+    molecule_name = molecule_name[~train.isnull().any(axis=1)]
+    train = train[~train.isnull().any(axis=1)]
+    categorical_cols = list(train.columns[train.dtypes == object])
+    logger.debug(nan_cols)
+    logger.debug(categorical_cols) 
+
+    for col in nan_cols:
+        if col in categorical_cols:
+            mode = train[col].dropna().mode()
+            test[col].fillna(mode[0], inplace=True)
+        else:
+            median = train[col].dropna().median()
+            test[col].fillna(median, inplace=True)
+
+
+# encoding categorical variables
 for col in categorical_cols:
-    le = LabelEncoder()
+    #le = LabelEncoder()
     print(f'Starting {col}')
-    train[col] = le.fit_transform(train[col])
-    test[col] = le.transform(test[col])
+    uniques = list(train[col].unique())
+    if None in uniques:
+        uniques.remove(None)
+    mapping = dict(zip(uniques, range(1, len(uniques)+1)))
+    train[col] = train[col].map(mapping)
+    test[col] = test[col].map(mapping)
 
 logger.debug(train.shape)
 logger.debug(test.shape)
