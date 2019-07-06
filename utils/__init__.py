@@ -16,18 +16,30 @@ def timer(name):
     print(f'{name}: finished in {end_time - start_time} s')
 
 
-def load_datasets(feats):
-    train_feats = [feather.read_dataframe(f'features/{feat}_train.feather') for feat in feats]
-    train = pd.concat(train_feats, axis=1)
-    test_feats = [feather.read_dataframe(f'features/{feat}_test.feather') for feat in feats]
-    test = pd.concat(test_feats, axis=1)
-    return train, test
+def load_datasets(feats, debug=False):
+    if debug:
+        train_feats = [feather.read_dataframe(f'features/{feat}_train.feather').head(10000) for feat in feats]
+        train = pd.concat(train_feats, axis=1)
+        test_feats = [feather.read_dataframe(f'features/{feat}_test.feather').head(10000) for feat in feats]
+        test = pd.concat(test_feats, axis=1)
+        return train, test
+    else:
+        train_feats = [feather.read_dataframe(f'features/{feat}_train.feather') for feat in feats]
+        train = pd.concat(train_feats, axis=1)
+        test_feats = [feather.read_dataframe(f'features/{feat}_test.feather') for feat in feats]
+        test = pd.concat(test_feats, axis=1)
+        return train, test
 
 
-def load_target(target_name):
-    train = feather.read_dataframe('data/input/train.feather')
-    target = train[target_name]
-    return target
+def load_target(target_name, debug=False):
+    if debug:
+        train = feather.read_dataframe('data/input/train.feather').head(10000)
+        target = train[target_name]
+        return target
+    else:
+        train = feather.read_dataframe('data/input/train.feather')
+        target = train[target_name]
+        return target        
 
 
 def get_categorical_feats(feats):
