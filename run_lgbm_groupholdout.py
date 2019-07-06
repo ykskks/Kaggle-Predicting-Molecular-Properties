@@ -15,6 +15,7 @@ from utils import load_datasets, load_target, get_categorical_feats, calculate_m
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", help="configuration for this run")
+parser.add_argument("--keep-nans", action="store_true", help="keep nan values as they are")
 parser.add_argument("--debug", action="store_true", help="activate debug mode")
 args = parser.parse_args()
 config_path = args.config
@@ -39,18 +40,16 @@ logger.debug(config_path)
 
 
 #load in datasets and target
-feats = config['feats']
-target_name = config['target_name']
-train, test = load_datasets(feats)
-target = load_target(target_name)
-molecule_name = feather.read_dataframe('./data/input/train.feather')['molecule_name'].values
-
 if is_debug_mode:
     print("Debug mode is ON!")
-    train = train.iloc[:10000]
-    test = test.iloc[:1000]
-    target = target.iloc[:10000]
-    molecule_name = molecule_name[:10000]
+    molecule_name = feather.read_dataframe('./data/input/train.feather')['molecule_name'].head(10000).values
+else:
+    molecule_name = feather.read_dataframe('./data/input/train.feather')['molecule_name'].values
+feats = config['feats']
+target_name = config['target_name']
+train, test = load_datasets(feats, is_debug_mode)
+target = load_target(target_name, is_debug_mode)
+
 
 train_type = train['type'].values
 test_type = test['type'].values
