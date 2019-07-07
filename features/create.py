@@ -671,9 +671,9 @@ class OpenBabelBasic(Feature):
                     # to ensure every atom pair has the same length
                     if len(tertiarystats) < 10:
                         for l in range(len(tertiarystats), 10):
-                            entrystats['tertiary_atom_'+str(l)] = 0.0
-                            entrystats['tertiary_distance_'+str(l)] = 0.0
-                            entrystats['tertiary_angle_'+str(l)] = 0.0
+                            entrystats['tertiary_atom_'+str(l)] = np.nan
+                            entrystats['tertiary_distance_'+str(l)] = np.nan
+                            entrystats['tertiary_angle_'+str(l)] = np.nan
 
                     if len(tertiarystats) > 10:
                         for m in range(10, len(tertiarystats)):
