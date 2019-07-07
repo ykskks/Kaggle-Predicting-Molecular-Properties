@@ -1,8 +1,10 @@
 import sys
+import os
 sys.path.append('.')
 import re
 import gc
 import pickle
+import math
 
 import pandas as pd
 import numpy as np
@@ -12,7 +14,7 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 
 from features.base import get_arguments, get_features, generate_features, Feature
-#from utils import get_atom_env_feature, get_atom_neighbor_feature, calc_atom_neighbor_feature, reduce_mem_usage
+from utils import get_atom_env_feature, get_atom_neighbor_feature, calc_atom_neighbor_feature, reduce_mem_usage
 # from utils import generate_brute_force_features
 
 Feature.base_dir = 'features'
@@ -596,6 +598,105 @@ class SOAP(Feature):
         for col in new_cols:
             self.train[col] = train[col].astype(float)
             self.test[col] = test[col].astype(float)  
+
+
+# https://www.kaggle.com/scirpus/angles-and-distances
+class OpenBabelBasic(Feature):
+    def create_features(self):
+        import openbabel
+
+        global train, test
+
+        #train = feather.read_dataframe('./data/iuput/train.feather')
+        #test = feather.read_dataframe('./data/iuput/test.feather')
+        structures = feather.read_dataframe('./data/input/structures.feather')
+
+        # get number of total atoms in a molecule
+        tmp = structures.groupby('molecule_name')['atom_index'].max().reset_index(drop=False)
+        tmp.columns = ['molecule_name', 'totalatoms']
+        tmp['totalatoms'] +=1
+        train = train.merge(tmp, on='molecule_name')
+        test = test.merge(tmp, on='molecule_name')
+
+        # convert xyz to OBMol
+        obConversion = openbabel.OBConversion()
+        obConversion.SetInFormat("xyz")
+        structdir='./data/input/structures/'
+        mols=[]
+        mols_files=os.listdir(structdir)
+        mols_index=dict(map(reversed, enumerate(mols_files)))
+        for f in tqdm(mols_index.keys()):
+            mol = openbabel.OBMol()
+            obConversion.ReadFile(mol, structdir+f) 
+            mols.append(mol)
+
+        # calculate basic stats using openbabel
+        def calc_obabel(df):
+            stats = []
+            for m,groupdf in tqdm(df.groupby('molecule_name')):
+                mol=mols[mols_index[m+'.xyz']]
+                for i in groupdf.index.values:
+                    totalatoms = groupdf.loc[i].totalatoms
+                    firstatomid = int(groupdf.loc[i].atom_index_0)
+                    secondatomid = int(groupdf.loc[i].atom_index_1)
+                    entrystats = {}
+                    entrystats['totalatoms'] = totalatoms
+                    #entrystats['scalar_coupling_constant'] = float(groupdf.loc[i].scalar_coupling_constant)
+                    #entrystats['type'] = groupdf.loc[i]['type']
+                    a = mol.GetAtomById(firstatomid)
+                    b = mol.GetAtomById(secondatomid)
+                    #entrystats['molecule_name'] = m
+                    #entrystats['atom_index_0'] = firstatomid
+                    #entrystats['atom_index_1'] = secondatomid
+                    #entrystats['bond_distance'] = a.GetDistance(b)
+                    entrystats['bond_atom'] = b.GetType()
+
+                    #Put the tertiary data in order of distance from first hydrogen
+                    tertiarystats = {}
+                    for j,c in enumerate(list(set(range(totalatoms)).difference(set([firstatomid,secondatomid])))):
+                        tertiaryatom = mol.GetAtomById(c)
+                        tp = tertiaryatom.GetType()
+                        dist = a.GetDistance(tertiaryatom)
+                        ang = a.GetAngle(b,tertiaryatom)*math.pi/180
+                        while(dist in tertiarystats):
+                            dist += 1e-15
+                            # print('Duplicates!',m,j,dist)
+                        tertiarystats[dist] = [tp,dist,ang]
+                    
+                    for k, c in enumerate(sorted(tertiarystats.keys())):
+                        entrystats['tertiary_atom_'+str(k)] = tertiarystats[c][0]
+                        entrystats['tertiary_distance_'+str(k)] = tertiarystats[c][1]
+                        entrystats['tertiary_angle_'+str(k)] = tertiarystats[c][2]
+
+                    # to ensure every atom pair has the same length
+                    if len(tertiarystats) < 10:
+                        for l in range(len(tertiarystats), 10):
+                            entrystats['tertiary_atom_'+str(l)] = 0.0
+                            entrystats['tertiary_distance_'+str(l)] = 0.0
+                            entrystats['tertiary_angle_'+str(l)] = 0.0
+
+                    if len(tertiarystats) > 10:
+                        for m in range(10, len(tertiarystats)):
+                            del entrystats['tertiary_atom_'+str(m)]
+                            del entrystats['tertiary_distance_'+str(m)]
+                            del entrystats['tertiary_angle_'+str(m)]
+
+                    stats.append(entrystats)
+
+            return pd.DataFrame(stats)
+
+        print('Starting train')
+        ob_train = calc_obabel(train)
+        print('Starting test')
+        ob_test = calc_obabel(test)
+
+        cols = ['bond_atom', 'totalatoms']
+        for n in range(10):
+            new = ['tertiary_atom_'+str(n), 'tertiary_distance_'+str(n), 'tertiary_angle_'+str(n)]
+            cols += new
+
+        self.train[cols] = ob_train[cols]
+        self.test[cols] = ob_test[cols]
 
 
 
