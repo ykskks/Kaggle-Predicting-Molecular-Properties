@@ -1,0 +1,31 @@
+{
+    "feats": [
+        "Atom",
+        "AtomPosition",
+        "AtomDistance",
+        "CouplingType",
+        "AtomEnvironment",
+        "AtomNeighbors",
+        "BruteForce",
+        "DistanceFromClosest",
+        "ElectroNegFromClosest",
+        "ACSF",
+        "ScalarCouplingContributionsOof2",
+        "MullikenChargePred"
+    ],
+
+    "target_name": "scalar_coupling_constant",
+
+    "params": {
+        "num_leaves": 255,
+        "max_depth":7, 
+        "objective": "regression_l2",
+        "learning_rate": 0.2,
+        "boosting_type": "gbdt",
+        "subsample_freq": 1,
+        "subsample": 0.75,
+        "metric": "mae",
+        "colsample_bytree": 0.75,
+        "seed":42
+    }
+}
