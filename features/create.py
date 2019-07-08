@@ -104,32 +104,33 @@ class AtomDistance(Feature):
         train['atom_distance'] = np.linalg.norm(train_p_0 - train_p_1, axis=1)
         test['atom_distance'] = np.linalg.norm(test_p_0 - test_p_1, axis=1)
 
-        tmp_0 = pd.DataFrame(train.groupby(['molecule_name', 'atom_index_0'])['atom_distance'].apply(lambda x: (1 / x ** 3))).rename(columns={'atom_distance': 'dist_inv_0'})
-        tmp_1 = pd.DataFrame(train.groupby(['molecule_name', 'atom_index_1'])['atom_distance'].apply(lambda x: (1 / x ** 3))).rename(columns={'atom_distance': 'dist_inv_1'})
+        def get_more_dist_features(df):
 
-        tmp_0['molecule_name'], tmp_0['atom_index_0'] = train['molecule_name'], train['atom_index_0']
-        tmp_1['molecule_name'], tmp_1['atom_index_1'] = train['molecule_name'], train['atom_index_1']
+            tmp_0 = pd.DataFrame(df.groupby(['molecule_name', 'atom_index_0'])['atom_distance'].apply(lambda x: (1 / x ** 3))).rename(columns={'atom_distance': 'dist_inv_0'})
+            tmp_1 = pd.DataFrame(df.groupby(['molecule_name', 'atom_index_1'])['atom_distance'].apply(lambda x: (1 / x ** 3))).rename(columns={'atom_distance': 'dist_inv_1'})
 
-        tmp_0 = tmp_0.groupby(['molecule_name', 'atom_index_0'])['dist_inv_0'].sum().reset_index().rename(columns={'dist_inv_0':'dist_inv_0_sum'})
-        tmp_1 = tmp_1.groupby(['molecule_name', 'atom_index_1'])['dist_inv_1'].sum().reset_index().rename(columns={'dist_inv_1':'dist_inv_1_sum'})
+            tmp_0['molecule_name'], tmp_0['atom_index_0'] = df['molecule_name'], df['atom_index_0']
+            tmp_1['molecule_name'], tmp_1['atom_index_1'] = df['molecule_name'], df['atom_index_1']
 
-        for df in [train, test]:
+            tmp_0 = tmp_0.groupby(['molecule_name', 'atom_index_0'])['dist_inv_0'].sum().reset_index().rename(columns={'dist_inv_0':'dist_inv_0_sum'})
+            tmp_1 = tmp_1.groupby(['molecule_name', 'atom_index_1'])['dist_inv_1'].sum().reset_index().rename(columns={'dist_inv_1':'dist_inv_1_sum'})
+
             df = df.merge(tmp_0, on=['molecule_name', 'atom_index_0'], how='left')
             df = df.merge(tmp_1, on=['molecule_name', 'atom_index_1'], how='left')
             df['dist_inv_sum_pair'] = df['dist_inv_0_sum']*df['dist_inv_1_sum'] / (df['dist_inv_0_sum']+df['dist_inv_1_sum'])
 
-        # some more dist related feature using radius 
-        for df in [train, test]:
+            # some more dist related feature using radius 
+        
             df['radius_0'] = df['atom_x'].map(radius)
-            df['en_0'] = df['atom_x'].map(en)
+            #df['en_0'] = df['atom_x'].map(en)
             df['radius_1'] = df['atom_y'].map(radius)
-            df['en_1'] = df['atom_y'].map(en)
+            #df['en_1'] = df['atom_y'].map(en)
 
             df['bond_length'] = df['atom_distance'] - df['radius_0'] - df['radius_1']
 
             tmp_0 = df.groupby(['molecule_name', 'atom_index_0'])['bond_length'].agg(['mean', 'max', 'min', 'sum']).reset_index()
             tmp_0.columns = ['molecule_name', 'atom_index_0', 'bond_length_mean', 'bond_length_max', 'bond_length_min', 'bond_length_sum']
-            tmp_1 = df.groupby(['molecule_name', 'atom_index_1'])['bond_length'].agg(['mean', 'max', 'min']).reset_index()
+            tmp_1 = df.groupby(['molecule_name', 'atom_index_1'])['bond_length'].agg(['mean', 'max', 'min', 'sum']).reset_index()
             tmp_1.columns = ['molecule_name', 'atom_index_1', 'bond_length_mean', 'bond_length_max', 'bond_length_min', 'bond_length_sum']
 
             df = df.merge(tmp_0, on=['molecule_name', 'atom_index_0'], how='left')
@@ -139,7 +140,11 @@ class AtomDistance(Feature):
             df['bond_length_max_pair'] = df['bond_length_max_a0'] + df['bond_length_max_a1']
             df['bond_length_min_pair'] = df['bond_length_min_a0'] + df['bond_length_min_a1']
             df['bond_length_sum_pair'] = df['bond_length_sum_a0'] + df['bond_length_sum_a1']
+            
+            return df
 
+        train = get_more_dist_features(train)
+        test = get_more_dist_features(test)
 
         cols = ['atom_distance', 'dist_inv_0_sum', 'dist_inv_1_sum', 'dist_inv_sum_pair', 
                 'bond_length_mean_a0', 'bond_length_max_a0', 'bond_length_min_a0', 'bond_length_sum_a0',
