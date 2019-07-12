@@ -812,24 +812,24 @@ class DistanceByAtom(Feature):
         test = test.merge(dist_h, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         test = test.merge(dist_h, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
 
-        train = train.merge(dist_c, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        train = train.merge(dist_c, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         train = train.merge(dist_c, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_c, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        test = test.merge(dist_c, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         test = test.merge(dist_c, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
 
-        train = train.merge(dist_o, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        train = train.merge(dist_o, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         train = train.merge(dist_o, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_o, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        test = test.merge(dist_o, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         test = test.merge(dist_o, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
 
-        train = train.merge(dist_n, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        train = train.merge(dist_n, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         train = train.merge(dist_n, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_n, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        test = test.merge(dist_n, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         test = test.merge(dist_n, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
 
-        train = train.merge(dist_f, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        train = train.merge(dist_f, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         train = train.merge(dist_f, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_f, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        test = test.merge(dist_f, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
         test = test.merge(dist_f, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
 
         new_cols = [col for col in train.columns if 'by_atom' in col]
