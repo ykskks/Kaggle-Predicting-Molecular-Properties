@@ -793,44 +793,27 @@ class DistanceByAtom(Feature):
             for col in cols:
                 dist[col] = dist[col].astype(float)
                 
-            dist['dist_by_atom_mean'] = dist[cols].mean(axis=1)
-            dist['dist_by_atom_max'] = dist[cols].max(axis=1)
-            dist['dist_by_atom_min'] = dist[cols].min(axis=1)
-            dist['dist_by_atom_std'] = dist[cols].std(axis=1) 
-            dist['dist_by_atom_zerocount'] = (dist[cols] == 0.0).astype(int).sum(axis=1)       
+            dist[f'dist_by_atom_{atom}_mean'] = dist[cols].mean(axis=1)
+            dist[f'dist_by_atom_{atom}_max'] = dist[cols].max(axis=1)
+            dist[f'dist_by_atom_{atom}_min'] = dist[cols].min(axis=1)
+            dist[f'dist_by_atom_{atom}_std'] = dist[cols].std(axis=1) 
+            dist[f'dist_by_atom_{atom}_zerocount'] = (dist[cols] == 0.0).astype(int).sum(axis=1)       
 
             return dist
 
         dist_h = calc_dist_by_atom(dist, 'H', 5)
-        dist_c = calc_dist_by_atom(dist, 'C', 5)
-        dist_o = calc_dist_by_atom(dist, 'O', 5)
-        dist_n = calc_dist_by_atom(dist, 'N', 5)
-        dist_f = calc_dist_by_atom(dist, 'F', 5)
+        dist_c = calc_dist_by_atom(dist, 'C', 5).drop(['molecule_name', 'atom_index_0'], axis=1)
+        dist_o = calc_dist_by_atom(dist, 'O', 5).drop(['molecule_name', 'atom_index_0'], axis=1)
+        dist_n = calc_dist_by_atom(dist, 'N', 5).drop(['molecule_name', 'atom_index_0'], axis=1)
+        dist_f = calc_dist_by_atom(dist, 'F', 5).drop(['molecule_name', 'atom_index_0'], axis=1)
 
-        train = train.merge(dist_h, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        train = train.merge(dist_h, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_h, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        test = test.merge(dist_h, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
+        dist = pd.concat([dist_h, dist_c, dist_o, dist_n, dist_f], axis=1)
+        print(f'Columns of dist are {dist.columns.values}')
 
-        train = train.merge(dist_c, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        train = train.merge(dist_c, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_c, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        test = test.merge(dist_c, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-
-        train = train.merge(dist_o, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        train = train.merge(dist_o, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_o, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        test = test.merge(dist_o, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-
-        train = train.merge(dist_n, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        train = train.merge(dist_n, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_n, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        test = test.merge(dist_n, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-
-        train = train.merge(dist_f, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        train = train.merge(dist_f, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
-        test = test.merge(dist_f, left_on=['molecule_name', 'atom_index_0_a0'], right_on=['molecule_name', 'atom_index_0'], how='left')
-        test = test.merge(dist_f, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
+        train = train.merge(dist, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        train = train.merge(dist, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
+        test = test.merge(dist, left_on=['molecule_name', 'atom_index_0'], right_on=['molecule_name', 'atom_index_0'], how='left')
+        test = test.merge(dist, left_on=['molecule_name', 'atom_index_1'], right_on=['molecule_name', 'atom_index_0'], how='left', suffixes=['_a0', '_a1'])
 
         new_cols = [col for col in train.columns if 'by_atom' in col]
         for col in new_cols:
