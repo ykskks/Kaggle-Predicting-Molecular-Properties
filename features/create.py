@@ -594,6 +594,12 @@ class ACSF(Feature):
         acsf_descs = pd.DataFrame(acsf_descs)   
 
         acsf_descs = acsf_descs.reset_index(drop=True)
+
+        # drop all zero columns
+        zero_cols = list(acsf_descs.columns[acsf_descs.sum(axis=0) < 5])
+        print(f"Dropping {len(zero_cols)} almost all zero columns.")
+        acsf_descs.drop(zero_cols, axis=1, inplace=True)
+
         acsf_descs.columns = [f'acsf_{i}' for i in range(acsf_descs.shape[1])]
         
         structures = pd.concat([structures, acsf_descs], axis=1)
@@ -623,8 +629,8 @@ class SOAP(Feature):
 
         soap = SOAP(species=["H", "O", 'N', 'C', 'F'],
                     rcut=10.0,
-                    nmax=2,
-                    lmax=2
+                    nmax=3,
+                    lmax=3
                     )
 
         soap_descs = []
@@ -638,6 +644,12 @@ class SOAP(Feature):
         soap_descs = pd.DataFrame(soap_descs)   
 
         soap_descs = soap_descs.reset_index(drop=True)
+
+        # drop all zero columns
+        zero_cols = list(soap_descs.columns[soap_descs.sum(axis=0) < 5])
+        print(f"Dropping {len(zero_cols)} almost all zero columns.")
+        soap_descs.drop(zero_cols, axis=1, inplace=True)
+
         soap_descs.columns = [f'soap_{i}' for i in range(soap_descs.shape[1])]
         
         structures = pd.concat([structures, soap_descs], axis=1)
