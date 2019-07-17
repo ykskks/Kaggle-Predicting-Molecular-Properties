@@ -107,11 +107,42 @@ train = reduce_mem_usage(train)
 test = reduce_mem_usage(test)
 gc.collect()
 
+
 #train lgbm
 params = config['params']
 SEED = 42
 VAL_SIZE = 0.2
 NUM_ROUNDS = 10000
+
+
+# before training, drop useless features by simple lgbm feature importance
+train_idx, val_idx = next(GroupShuffleSplit(random_state=SEED, n_splits=1, test_size=VAL_SIZE).split(train, target, molecule_name))
+
+x_train, y_train = train.iloc[train_idx], target.iloc[train_idx]
+x_val, y_val = train.iloc[val_idx], target.iloc[val_idx]
+
+callbacks = [log_evaluation(logger, period=100)]
+
+train_data = lgb.Dataset(x_train, label=y_train, categorical_feature=categorical_cols)
+val_data = lgb.Dataset(x_val, label=y_val, categorical_feature=categorical_cols)
+clf = lgb.train(params, train_data, NUM_ROUNDS, valid_sets=[train_data, val_data],
+                verbose_eval=False, early_stopping_rounds=100, callbacks=callbacks)
+val_pred = clf.predict(x_val, num_iteration=clf.best_iteration) 
+
+
+#get feature importance and select 150 best feature
+feature_importance_df = pd.DataFrame()
+feature_importance_df['feats'] = train.columns
+feature_importance_df['importance'] = clf.feature_importance(importance_type='gain')
+feature_importance_df = feature_importance_df.sort_values(by='importance', ascending=False).head(150)
+use_cols = list(feature_importance_df['feats'].values)
+logger.debug(f'selected features are {use_cols}')
+
+# use those 150 features for training and submission
+categorical_cols = [col for col in categorical_cols if col in use_cols]
+train = train[use_cols]
+test = test[use_cols]
+
 
 #build models for each type
 predictions = np.zeros(len(test))
