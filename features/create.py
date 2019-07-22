@@ -879,14 +879,14 @@ class CosineDistance(Feature):
 
         temp_min = temp.copy()
         temp_min["min_dist"] = temp.groupby(["molecule_name", "atom_index_0"])["dist"].transform('min')
-        temp_min = temp_min[temp_min["dist"] == temp_min["min_dist"]]
+        temp_min = temp_min[temp_min["dist"] == temp_min["min_dist"]].groupby(["molecule_name", "atom_index_0"]).first().reset_index()
         drop = ["atom_index_1","atom_0", "x_0", "y_0", "z_0", "atom_1", "dist", "min_dist"]
         temp_min.drop(drop, axis=1, inplace=True)
         temp_min.columns = ["molecule_name", "atom_index_min", "x_closest", "y_closest", "z_closest"]
 
         temp_max = temp.copy()
         temp_max["max_dist"] = temp.groupby(["molecule_name", "atom_index_0"])["dist"].transform('max')
-        temp_max = temp_max[temp_max["dist"] == temp_max["max_dist"]]
+        temp_max = temp_max[temp_max["dist"] == temp_max["max_dist"]].groupby(["molecule_name", "atom_index_0"]).first().reset_index()
         drop = ["atom_index_1","atom_0", "x_0", "y_0", "z_0", "atom_1", "dist", "max_dist"]
         temp_max.drop(drop, axis=1, inplace=True)
         temp_max.columns = ["molecule_name", "atom_index_max", "x_furthest", "y_furthest", "z_furthest"]
