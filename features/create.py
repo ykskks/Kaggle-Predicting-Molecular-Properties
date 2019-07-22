@@ -833,6 +833,137 @@ class DistanceByAtom(Feature):
             self.test[col] = test[col].astype(float)  
        
 
+# https://www.kaggle.com/todnewman/keras-neural-net-for-champs
+class CosineDistance(Feature):
+    def create_features(self):
+        global train, test
+        structures = feather.read_dataframe('./data/input/structures.feather')
+
+        structures['c_x'] = structures.groupby('molecule_name')['x'].transform('mean')
+        structures['c_y'] = structures.groupby('molecule_name')['y'].transform('mean')
+        structures['c_z'] = structures.groupby('molecule_name')['z'].transform('mean')
+
+        def map_atom_info(df, atom_idx):
+            df = pd.merge(df, structures, how='left', left_on=['molecule_name', f'atom_index_{atom_idx}'],
+                          right_on=['molecule_name', 'atom_index'])
+            df = df.drop('atom_index', axis=1)
+            df = df.rename(columns={'atom': f'atom_{atom_idx}',
+                                    'x': f'x_{atom_idx}',
+                                    'y': f'y_{atom_idx}',
+                                    'z': f'z_{atom_idx}',
+                                    'c_x': f'c_x_{atom_idx}',
+                                    'c_y': f'c_y_{atom_idx}',
+                                    'c_z': f'c_z_{atom_idx}'})
+            return df
+
+        train = map_atom_info(train, 0)
+        train = map_atom_info(train, 1)
+        test = map_atom_info(test, 0)
+        test = map_atom_info(test, 1)       
+
+        train_p_0 = train[['x_0', 'y_0', 'z_0']].values
+        train_p_1 = train[['x_1', 'y_1', 'z_1']].values
+        test_p_0 = test[['x_0', 'y_0', 'z_0']].values
+        test_p_1 = test[['x_1', 'y_1', 'z_1']].values
+
+        train['dist'] = np.linalg.norm(train_p_0 - train_p_1, axis=1)
+        test['dist'] = np.linalg.norm(test_p_0 - test_p_1, axis=1)
+
+
+        structures = feather.read_dataframe('./data/input/structures.feather')
+        temp = structures.merge(structures, on="molecule_name", how="left", suffixes=["_0", "_1"])
+        temp = temp[temp["atom_index_0"] != temp["atom_index_1"]]
+        temp_p_0 = temp[['x_0', 'y_0', 'z_0']].values
+        temp_p_1 = temp[['x_1', 'y_1', 'z_1']].values
+        temp['dist'] = np.linalg.norm(temp_p_0 - temp_p_1, axis=1)
+
+        temp_min = temp.copy()
+        temp_min["min_dist"] = temp.groupby(["molecule_name", "atom_index_0"])["dist"].transform('min')
+        temp_min = temp_min[temp_min["dist"] == temp_min["min_dist"]]
+        drop = ["atom_index_1","atom_0", "x_0", "y_0", "z_0", "atom_1", "dist", "min_dist"]
+        temp_min.drop(drop, axis=1, inplace=True)
+        temp_min.columns = ["molecule_name", "atom_index_min", "x_closest", "y_closest", "z_closest"]
+
+        temp_max = temp.copy()
+        temp_max["max_dist"] = temp.groupby(["molecule_name", "atom_index_0"])["dist"].transform('max')
+        temp_max = temp_max[temp_max["dist"] == temp_max["max_dist"]]
+        drop = ["atom_index_1","atom_0", "x_0", "y_0", "z_0", "atom_1", "dist", "max_dist"]
+        temp_max.drop(drop, axis=1, inplace=True)
+        temp_max.columns = ["molecule_name", "atom_index_max", "x_furthest", "y_furthest", "z_furthest"]
+
+        train = train.merge(temp_min, left_on=["molecule_name", "atom_index_0"], right_on=["molecule_name", "atom_index_min"], how="left")
+        train = train.merge(temp_min, left_on=["molecule_name","atom_index_1"], right_on=["molecule_name","atom_index_min"], how="left", suffixes=['_0', "_1"])
+        test = test.merge(temp_min, left_on=["molecule_name", "atom_index_0"], right_on=["molecule_name", "atom_index_min"], how="left")
+        test = test.merge(temp_min, left_on=["molecule_name","atom_index_1"], right_on=["molecule_name","atom_index_min"], how="left", suffixes=['_0', "_1"])
+
+        train = train.merge(temp_max, left_on=["molecule_name", "atom_index_0"], right_on=["molecule_name", "atom_index_max"], how="left")
+        train = train.merge(temp_max, left_on=["molecule_name","atom_index_1"], right_on=["molecule_name","atom_index_max"], how="left", suffixes=['_0', "_1"])
+        test = test.merge(temp_max, left_on=["molecule_name", "atom_index_0"], right_on=["molecule_name", "atom_index_max"], how="left")
+        test = test.merge(temp_max, left_on=["molecule_name","atom_index_1"], right_on=["molecule_name","atom_index_max"], how="left", suffixes=['_0', "_1"])
+
+
+        def add_features(df):
+            #df = df.merge(structures[["molecule_name", "c_x", "c_y", "c_z"]], on="molecule_name", how="left")
+
+            df["distance_center0"]=((df['x_0']-df['c_x_0'])**2+(df['y_0']-df['c_y_0'])**2+(df['z_0']-df['c_z_0'])**2)**(1/2)
+            df["distance_center1"]=((df['x_1']-df['c_x_1'])**2+(df['y_1']-df['c_y_1'])**2+(df['z_1']-df['c_z_1'])**2)**(1/2)
+            df["distance_c0"]=((df['x_0']-df['x_closest_0'])**2+(df['y_0']-df['y_closest_0'])**2+(df['z_0']-df['z_closest_0'])**2)**(1/2)
+            df["distance_c1"]=((df['x_1']-df['x_closest_1'])**2+(df['y_1']-df['y_closest_1'])**2+(df['z_1']-df['z_closest_1'])**2)**(1/2)
+            df["distance_f0"]=((df['x_0']-df['x_furthest_0'])**2+(df['y_0']-df['y_furthest_0'])**2+(df['z_0']-df['z_furthest_0'])**2)**(1/2)
+            df["distance_f1"]=((df['x_1']-df['x_furthest_1'])**2+(df['y_1']-df['y_furthest_1'])**2+(df['z_1']-df['z_furthest_1'])**2)**(1/2)
+            df["vec_center0_x"]=(df['x_0']-df['c_x_0'])/(df["distance_center0"]+1e-10)
+            df["vec_center0_y"]=(df['y_0']-df['c_y_0'])/(df["distance_center0"]+1e-10)
+            df["vec_center0_z"]=(df['z_0']-df['c_z_0'])/(df["distance_center0"]+1e-10)
+            df["vec_center1_x"]=(df['x_1']-df['c_x_1'])/(df["distance_center1"]+1e-10)
+            df["vec_center1_y"]=(df['y_1']-df['c_y_1'])/(df["distance_center1"]+1e-10)
+            df["vec_center1_z"]=(df['z_1']-df['c_z_1'])/(df["distance_center1"]+1e-10)
+            df["vec_c0_x"]=(df['x_0']-df['x_closest_0'])/(df["distance_c0"]+1e-10)
+            df["vec_c0_y"]=(df['y_0']-df['y_closest_0'])/(df["distance_c0"]+1e-10)
+            df["vec_c0_z"]=(df['z_0']-df['z_closest_0'])/(df["distance_c0"]+1e-10)
+            df["vec_c1_x"]=(df['x_1']-df['x_closest_1'])/(df["distance_c1"]+1e-10)
+            df["vec_c1_y"]=(df['y_1']-df['y_closest_1'])/(df["distance_c1"]+1e-10)
+            df["vec_c1_z"]=(df['z_1']-df['z_closest_1'])/(df["distance_c1"]+1e-10)
+            df["vec_f0_x"]=(df['x_0']-df['x_furthest_0'])/(df["distance_f0"]+1e-10)
+            df["vec_f0_y"]=(df['y_0']-df['y_furthest_0'])/(df["distance_f0"]+1e-10)
+            df["vec_f0_z"]=(df['z_0']-df['z_furthest_0'])/(df["distance_f0"]+1e-10)
+            df["vec_f1_x"]=(df['x_1']-df['x_furthest_1'])/(df["distance_f1"]+1e-10)
+            df["vec_f1_y"]=(df['y_1']-df['y_furthest_1'])/(df["distance_f1"]+1e-10)
+            df["vec_f1_z"]=(df['z_1']-df['z_furthest_1'])/(df["distance_f1"]+1e-10)
+            df["vec_x"]=(df['x_1']-df['x_0'])/df["dist"]
+            df["vec_y"]=(df['y_1']-df['y_0'])/df["dist"]
+            df["vec_z"]=(df['z_1']-df['z_0'])/df["dist"]
+            df["cos_c0_c1"]=df["vec_c0_x"]*df["vec_c1_x"]+df["vec_c0_y"]*df["vec_c1_y"]+df["vec_c0_z"]*df["vec_c1_z"]
+            df["cos_f0_f1"]=df["vec_f0_x"]*df["vec_f1_x"]+df["vec_f0_y"]*df["vec_f1_y"]+df["vec_f0_z"]*df["vec_f1_z"]
+            df["cos_center0_center1"]=df["vec_center0_x"]*df["vec_center1_x"]+df["vec_center0_y"]*df["vec_center1_y"]+df["vec_center0_z"]*df["vec_center1_z"]
+            df["cos_c0"]=df["vec_c0_x"]*df["vec_x"]+df["vec_c0_y"]*df["vec_y"]+df["vec_c0_z"]*df["vec_z"]
+            df["cos_c1"]=df["vec_c1_x"]*df["vec_x"]+df["vec_c1_y"]*df["vec_y"]+df["vec_c1_z"]*df["vec_z"]
+            df["cos_f0"]=df["vec_f0_x"]*df["vec_x"]+df["vec_f0_y"]*df["vec_y"]+df["vec_f0_z"]*df["vec_z"]
+            df["cos_f1"]=df["vec_f1_x"]*df["vec_x"]+df["vec_f1_y"]*df["vec_y"]+df["vec_f1_z"]*df["vec_z"]
+            df["cos_center0"]=df["vec_center0_x"]*df["vec_x"]+df["vec_center0_y"]*df["vec_y"]+df["vec_center0_z"]*df["vec_z"]
+            df["cos_center1"]=df["vec_center1_x"]*df["vec_x"]+df["vec_center1_y"]*df["vec_y"]+df["vec_center1_z"]*df["vec_z"]
+            df=df.drop(['vec_c0_x','vec_c0_y','vec_c0_z','vec_c1_x','vec_c1_y','vec_c1_z',
+                        'vec_f0_x','vec_f0_y','vec_f0_z','vec_f1_x','vec_f1_y','vec_f1_z',
+                        'vec_center0_x','vec_center0_y','vec_center0_z','vec_center1_x','vec_center1_y','vec_center1_z',
+                        'vec_x','vec_y','vec_z'], axis=1)
+            return df
+                    
+        train = add_features(train)
+        test = add_features(test)
+
+        new_cols = ['c_x_0',
+                    'c_y_0', 'c_z_0', 'c_x_1', 'c_y_1',
+                    'c_z_1', 'x_closest_0', 'y_closest_0',
+                    'z_closest_0','x_closest_1', 'y_closest_1',
+                    'z_closest_1', 'x_furthest_0', 'y_furthest_0',
+                    'z_furthest_0','x_furthest_1', 'y_furthest_1',
+                    'z_furthest_1', 'distance_center0', 'distance_center1',
+                    'distance_c0', 'distance_c1', 'distance_f0', 'distance_f1',
+                    'cos_c0_c1', 'cos_f0_f1', 'cos_center0_center1', 'cos_c0',
+                    'cos_c1', 'cos_f0', 'cos_f1', 'cos_center0', 'cos_center1']
+
+        for col in new_cols:
+            self.train[col] = train[col].astype(float)
+            self.test[col] = test[col].astype(float)          
 
 if __name__ == '__main__':
     args = get_arguments()
