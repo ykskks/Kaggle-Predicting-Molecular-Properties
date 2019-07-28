@@ -11,7 +11,9 @@ import numpy as np
 import feather
 #from rdkit.Chem import Descriptors, Descriptors3D, MolFromMolBlock, MACCSkeys, DataStructs
 from tqdm import tqdm
+tqdm.pandas()
 from joblib import Parallel, delayed
+import openbabel
 
 from features.base import get_arguments, get_features, generate_features, Feature
 from utils import get_atom_env_feature, get_atom_neighbor_feature, calc_atom_neighbor_feature, reduce_mem_usage
@@ -964,6 +966,70 @@ class CosineDistance(Feature):
         for col in new_cols:
             self.train[col] = train[col].astype(float)
             self.test[col] = test[col].astype(float)          
+
+
+# https://www.kaggle.com/pridegoodmusic/cis-trans-isomerism-feature
+class CisTrans(Feature):
+    def create_features(self):
+        global train, test
+        structures = feather.read_dataframe('./data/input/structures.feather')
+
+        obConversion = openbabel.OBConversion()
+        obConversion.SetInFormat("xyz")
+
+        def cis_trans_bond_indices(molecule_name):
+            mol = openbabel.OBMol()
+            obConversion.ReadFile(mol, f'./data/input/structures/{molecule_name}.xyz')
+            obs = openbabel.OBStereoFacade(mol)
+            has_ct = [obs.HasCisTransStereo(n) for n in range(mol.NumBonds())]
+            return [i for i, x in enumerate(has_ct) if x == True] if has_ct else []
+
+        df = pd.DataFrame(structures.molecule_name.unique(), columns=['molecule_name'])
+        df['bond_indices'] = df["molecule_name"].progress_apply(lambda x: cis_trans_bond_indices(x))
+        df['len_bond_indices'] = df["bond_indices"].progress_apply(lambda x:len(x))
+
+        train = pd.merge(train, df, how='left', on='molecule_name')
+        test = pd.merge(test, df, how='left', on='molecule_name')
+
+        def is_cis_trans(molecule_name, bond_indices, atom_index_0, atom_index_1):
+            if len(bond_indices) == 0:
+                return pd.Series([0,0])
+
+            mol = openbabel.OBMol()
+            obConversion.ReadFile(mol, f'./data/input/structures/{molecule_name}.xyz')
+            obs = openbabel.OBStereoFacade(mol)
+            
+            is_cis   = [obs.GetCisTransStereo(i).IsCis(atom_index_0, atom_index_1) for i in bond_indices]
+            is_trans = [obs.GetCisTransStereo(i).IsTrans(atom_index_0, atom_index_1) for i in bond_indices]
+            return pd.Series([int(True in is_cis), int(True in is_trans)])      
+
+        train[['is_cis','is_trans']] = train.progress_apply(lambda x: is_cis_trans(x.molecule_name,
+                                                                                    x.bond_indices,
+                                                                                    x.atom_index_0,
+                                                                                    x.atom_index_1), axis=1)
+
+        test[['is_cis','is_trans']] = test.progress_apply(lambda x: is_cis_trans(x.molecule_name,
+                                                                                    x.bond_indices,
+                                                                                    x.atom_index_0,
+                                                                                    x.atom_index_1), axis=1)  
+        # https://www.kaggle.com/soerendip/angle-and-dihedral-for-the-champs-structures
+        angles = pd.read_csv('./data/input/angles.csv')
+
+        train = pd.merge(train, 
+                        angles[['molecule_name','atom_index_0','atom_index_1','dihedral', 'cosinus']],
+                        how='left',
+                        on=['molecule_name','atom_index_0','atom_index_1'])
+
+        test = pd.merge(test, 
+                        angles[['molecule_name','atom_index_0','atom_index_1','dihedral', 'cosinus']],
+                        how='left',
+                        on=['molecule_name','atom_index_0','atom_index_1'])
+
+        new_cols = ["is_cis", "is_trans", "dihedral", "cosinus"]
+
+        for col in new_cols:
+            self.train[col] = train[col]
+            self.test[col] = test[col]      
 
 if __name__ == '__main__':
     args = get_arguments()
